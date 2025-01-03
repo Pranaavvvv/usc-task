@@ -19,7 +19,7 @@ def load_data():
 
 def load_ema_data():
     try:
-        ema_df = pd.read_csv('/mnt/data/Updated_EMA_with_PM.csv')
+        ema_df = pd.read_csv('Updated_EMA_with_PM.csv')
         return ema_df
     except FileNotFoundError:
         st.error("Error: Could not find 'Updated_EMA_with_PM.csv'.")
