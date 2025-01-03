@@ -19,7 +19,7 @@ def load_data():
 
 def load_ema_data():
     try:
-        ema_df = pd.read_csv('/mnt/data/Updated_EMA_with_PM.csv')
+        ema_df = pd.read_csv('Updated_EMA_with_PM.csv')
         st.write("Columns in EMA dataset:", ema_df.columns)
         
         # Assuming 'actual_start_local' is the timestamp column
