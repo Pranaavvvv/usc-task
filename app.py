@@ -17,30 +17,6 @@ def load_data():
         st.error(f"Error reading the CSV file: {str(e)}")
         return None
 
-def load_ema_data():
-    try:
-        ema_df = pd.read_csv('Updated_EMA_with_PM.csv')
-        st.write("Columns in EMA dataset:", ema_df.columns)
-        
-        # Assuming 'actual_start_local' is the timestamp column
-        if 'actual_start_local' not in ema_df.columns:
-            st.error("The 'actual_start_local' column is missing in the EMA dataset.")
-            return None
-        
-        # Convert to datetime
-        ema_df['actual_start_local'] = pd.to_datetime(ema_df['actual_start_local'], errors='coerce')
-        
-        if ema_df['actual_start_local'].isnull().any():
-            st.warning("Some rows have invalid timestamps in 'actual_start_local' and were coerced to NaT.")
-        
-        return ema_df
-    except FileNotFoundError:
-        st.error("Error: Could not find 'Updated_EMA_with_PM.csv'.")
-        return None
-    except Exception as e:
-        st.error(f"Error reading the EMA CSV file: {str(e)}")
-        return None
-
 def get_movement_type(speed):
     if speed < 0.05:
         return "Standing Still"
@@ -57,7 +33,6 @@ def main():
 
     # Load and process data
     df = load_data()
-    ema_df = load_ema_data()
     
     if df is not None:
         # Convert time string to datetime with European format (DD-MM-YYYY)
@@ -77,19 +52,15 @@ def main():
             return
 
         # Create tabs for different visualizations
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "Combined Analysis", 
-            "Movement Analysis", 
-            "Map View", 
-            "Environmental Data", 
-            "Weekly Analytics"
-        ])
+        tab1, tab2, tab3, tab4 = st.tabs(["Combined Analysis", "Movement Analysis", "Map View", "Environmental Data"])
 
         with tab1:
             st.subheader("Combined Movement, Pollution, and Mood Analysis")
             
+            # Create a combined plot
             fig = go.Figure()
             
+            # Add Speed data
             fig.add_trace(go.Scatter(
                 x=day_df['Time'],
                 y=day_df['Speed'],
@@ -97,6 +68,7 @@ def main():
                 yaxis='y1'
             ))
             
+            # Add PM2.5 data
             fig.add_trace(go.Scatter(
                 x=day_df['Time'],
                 y=day_df['PM2.5'],
@@ -104,6 +76,7 @@ def main():
                 yaxis='y2'
             ))
             
+            # Add PM10 data
             fig.add_trace(go.Scatter(
                 x=day_df['Time'],
                 y=day_df['PM10'],
@@ -111,6 +84,7 @@ def main():
                 yaxis='y3'
             ))
 
+            # Update layout for multiple y-axes
             fig.update_layout(
                 title='Combined Analysis Over Time',
                 yaxis=dict(title='Speed', side='left'),
@@ -124,17 +98,20 @@ def main():
         with tab2:
             st.subheader("Movement Patterns")
             
+            # Speed vs Time plot
             fig_speed = px.line(day_df, x='Time', y='Speed', title='Speed Over Time')
             fig_speed.add_scatter(x=day_df['Time'], y=day_df['Speed'], 
                                 mode='markers', text=day_df['Movement'], 
                                 name='Movement Type')
             st.plotly_chart(fig_speed, use_container_width=True)
 
+            # Movement type distribution
             movement_dist = day_df['Movement'].value_counts()
             fig_pie = px.pie(values=movement_dist.values, names=movement_dist.index,
                             title='Distribution of Movement Types')
             st.plotly_chart(fig_pie)
 
+            # Statistics
             st.subheader("Movement Statistics")
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -151,6 +128,7 @@ def main():
                                    day_df['Longitude'].mean()],
                           zoom_start=15)
 
+            # Add color-coded markers
             for idx, row in day_df.iterrows():
                 color = {
                     "Standing Still": "red",
@@ -173,8 +151,25 @@ def main():
                     fill=True
                 ).add_to(m)
 
+            # Path line
             coordinates = day_df[['Latitude', 'Longitude']].values.tolist()
             folium.PolyLine(coordinates, weight=2, color='blue', opacity=0.8).add_to(m)
+
+            # Legend
+            legend_html = """
+                <div style="position: fixed; 
+                            bottom: 50px; right: 50px; 
+                            border:2px solid grey; z-index:9999; font-size:14px;
+                            background-color:white;
+                            padding: 10px;
+                            border-radius: 5px;">
+                <p><i class="fa fa-circle" style="color:red"></i> Standing Still</p>
+                <p><i class="fa fa-circle" style="color:blue"></i> Walking</p>
+                <p><i class="fa fa-circle" style="color:green"></i> Running</p>
+                <p><i class="fa fa-circle" style="color:purple"></i> Driving</p>
+                </div>
+                """
+            m.get_root().html.add_child(folium.Element(legend_html))
 
             folium_static(m)
 
@@ -194,17 +189,6 @@ def main():
                 st.metric("Average PM2.5", f"{day_df['PM2.5'].mean():.1f}")
             with col2:
                 st.metric("Average PM10", f"{day_df['PM10'].mean():.1f}")
-
-        with tab5:
-            st.subheader("Weekly Analytics")
-            
-            if ema_df is not None:
-                ema_df['Week'] = ema_df['actual_start_local'].dt.isocalendar().week
-                weekly_avg = ema_df.groupby('Week').mean()[['HAPPY', 'PM2.5_mean', 'PM10_mean']]
-                fig_weekly = px.line(weekly_avg, x=weekly_avg.index, y=['HAPPY', 'PM2.5_mean', 'PM10_mean'], 
-                                     labels={'value': 'Metric', 'Week': 'Week'},
-                                     title='Weekly Analysis of Mood and Pollution')
-                st.plotly_chart(fig_weekly, use_container_width=True)
 
 if __name__ == "__main__":
     main()
