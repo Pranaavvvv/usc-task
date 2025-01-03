@@ -1,5 +1,5 @@
-pandas
 streamlit
-matplotlib
+pandas
+plotly
 folium
-geopy
+streamlit-folium
