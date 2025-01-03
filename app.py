@@ -2,18 +2,16 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime
 import folium
 from streamlit_folium import folium_static
-import numpy as np
-from scipy import stats
 
 def load_data():
     try:
-        df = pd.read_csv('Updated_EMA_with_PM.csv')
+        df = pd.read_csv('Integrated_GPX_with_PM_Data.csv')
         return df
     except FileNotFoundError:
-        st.error("Error: Could not find 'Updated_EMA_with_PM.csv'.")
+        st.error("Error: Could not find 'Integrated_GPX_with_PM_Data.csv'.")
         return None
     except Exception as e:
         st.error(f"Error reading the CSV file: {str(e)}")
@@ -29,191 +27,168 @@ def get_movement_type(speed):
     else:
         return "Driving"
 
-def calculate_mood_metrics(df):
-    df['PositiveMood'] = df[['HAPPY', 'EXCITED', 'CALM', 'RELAXED', 'PROUD']].mean(axis=1)
-    df['NegativeMood'] = df[['IRRITABLE', 'ANXIOUS', 'SAD', 'BORED', 'LONELY']].mean(axis=1)
-    return df
-
-def calculate_movement_speed(df):
-    df['speed'] = np.sqrt(df['LATITUDE'].diff()**2 + df['LONGITUDE'].diff()**2) / df['Time'].diff().dt.total_seconds()
-    df['movement_type'] = df['speed'].apply(get_movement_type)
-    return df
-
-def calculate_weekly_stats(df, start_date):
-    end_date = start_date + timedelta(days=6)
-    week_mask = (df['Time'].dt.date >= start_date) & (df['Time'].dt.date <= end_date)
-    week_df = df[week_mask]
-    
-    correlations = {}
-    for pollutant in ['PM2.5_mean', 'PM10_mean']:
-        for mood in ['PositiveMood', 'NegativeMood']:
-            corr, p_value = stats.pearsonr(week_df[pollutant], week_df[mood])
-            correlations[f"{pollutant}_{mood}"] = {'correlation': corr, 'p_value': p_value}
-    
-    return correlations, week_df
-
 def main():
-    st.set_page_config(page_title="Movement & Mood Analysis", layout="wide")
-    st.title("Movement, Mood & Environment Analysis")
+    st.set_page_config(page_title="Movement Pattern Analysis", layout="wide")
+    st.title("Movement Pattern Analysis")
 
+    # Load and process data
     df = load_data()
     
     if df is not None:
-        df['Time'] = pd.to_datetime(df['actual_start_local'], format='%d-%m-%Y %H:%M')
-        df = calculate_mood_metrics(df)
-        df = calculate_movement_speed(df)
+        # Convert time string to datetime with European format (DD-MM-YYYY)
+        df['Time'] = pd.to_datetime(df['Time'], format='%d-%m-%Y %H:%M')
+        df['Movement'] = df['Speed'].apply(get_movement_type)
         
-        view_mode = st.radio("Select View Mode", ["Daily View", "Weekly Analysis"])
+        # Date selection
+        available_dates = df['Time'].dt.date.unique()
+        selected_date = st.selectbox("Select Date", available_dates)
         
-        if view_mode == "Daily View":
-            available_dates = df['Time'].dt.date.unique()
-            selected_date = st.selectbox("Select Date", available_dates)
-            mask = df['Time'].dt.date == selected_date
-            day_df = df[mask]
+        # Filter data for selected date
+        mask = df['Time'].dt.date == selected_date
+        day_df = df[mask]
 
-            if day_df.empty:
-                st.warning("No data available for selected date.")
-                return
+        if day_df.empty:
+            st.warning("No data available for selected date.")
+            return
 
-            tab1, tab2, tab3, tab4 = st.tabs(["Movement Analysis", "Combined Analysis", "Environmental Data", "Map View"])
+        # Create tabs for different visualizations
+        tab1, tab2, tab3, tab4 = st.tabs(["Combined Analysis", "Movement Analysis", "Map View", "Environmental Data"])
 
-            with tab1:
-                st.subheader("Movement Pattern Analysis")
-                
-                # Movement pattern distribution
-                movement_counts = day_df['movement_type'].value_counts()
-                fig_movement = px.pie(values=movement_counts.values, 
-                                    names=movement_counts.index,
-                                    title='Movement Pattern Distribution')
-                st.plotly_chart(fig_movement)
-                
-                # Movement timeline
-                fig_timeline = go.Figure()
-                for movement_type in day_df['movement_type'].unique():
-                    mask = day_df['movement_type'] == movement_type
-                    fig_timeline.add_trace(go.Scatter(
-                        x=day_df[mask]['Time'],
-                        y=[movement_type] * mask.sum(),
-                        name=movement_type,
-                        mode='markers'
-                    ))
-                fig_timeline.update_layout(title='Movement Timeline',
-                                        yaxis_title='Movement Type',
-                                        height=400)
-                st.plotly_chart(fig_timeline, use_container_width=True)
+        with tab1:
+            st.subheader("Combined Movement, Pollution, and Mood Analysis")
+            
+            # Create a combined plot
+            fig = go.Figure()
+            
+            # Add Speed data
+            fig.add_trace(go.Scatter(
+                x=day_df['Time'],
+                y=day_df['Speed'],
+                name='Speed',
+                yaxis='y1'
+            ))
+            
+            # Add PM2.5 data
+            fig.add_trace(go.Scatter(
+                x=day_df['Time'],
+                y=day_df['PM2.5'],
+                name='PM2.5',
+                yaxis='y2'
+            ))
+            
+            # Add PM10 data
+            fig.add_trace(go.Scatter(
+                x=day_df['Time'],
+                y=day_df['PM10'],
+                name='PM10',
+                yaxis='y3'
+            ))
 
-            with tab2:
-                st.subheader("Combined Analysis")
-                
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=day_df['Time'], y=day_df['PositiveMood'],
-                                       name='Positive Mood', yaxis='y1'))
-                fig.add_trace(go.Scatter(x=day_df['Time'], y=day_df['NegativeMood'],
-                                       name='Negative Mood', yaxis='y1'))
-                fig.add_trace(go.Scatter(x=day_df['Time'], y=day_df['PM2.5_mean'],
-                                       name='PM2.5', yaxis='y2'))
-                fig.add_trace(go.Scatter(x=day_df['Time'], y=day_df['PM10_mean'],
-                                       name='PM10', yaxis='y3'))
-
-                fig.update_layout(
-                    title='Combined Metrics Over Time',
-                    yaxis=dict(title='Mood Score', side='left'),
-                    yaxis2=dict(title='PM2.5', side='right', overlaying='y', position=0.85),
-                    yaxis3=dict(title='PM10', side='right', overlaying='y', position=0.95),
-                    height=600
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            with tab3:
-                st.subheader("Environmental Data")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Average PM2.5", f"{day_df['PM2.5_mean'].mean():.1f}")
-                with col2:
-                    st.metric("Average PM10", f"{day_df['PM10_mean'].mean():.1f}")
-
-            with tab4:
-                st.subheader("Movement Map")
-                if 'LATITUDE' in day_df.columns and 'LONGITUDE' in day_df.columns:
-                    m = folium.Map(location=[day_df['LATITUDE'].mean(), 
-                                           day_df['LONGITUDE'].mean()],
-                                 zoom_start=15)
-
-                    movement_colors = {
-                        "Standing Still": "blue",
-                        "Walking": "green",
-                        "Running": "orange",
-                        "Driving": "red"
-                    }
-
-                    for idx, row in day_df.iterrows():
-                        if pd.notna(row['LATITUDE']) and pd.notna(row['LONGITUDE']):
-                            folium.CircleMarker(
-                                location=[row['LATITUDE'], row['LONGITUDE']],
-                                radius=8,
-                                popup=f"""
-                                Time: {row['Time']}<br>
-                                Movement: {row['movement_type']}<br>
-                                Positive Mood: {row['PositiveMood']:.2f}<br>
-                                Negative Mood: {row['NegativeMood']:.2f}<br>
-                                PM2.5: {row['PM2.5_mean']}<br>
-                                PM10: {row['PM10_mean']}
-                                """,
-                                color=movement_colors[row['movement_type']],
-                                fill=True
-                            ).add_to(m)
-
-                    folium_static(m)
-                else:
-                    st.warning("Location data not available for mapping.")
-
-        else:  # Weekly Analysis
-            available_weeks = pd.date_range(
-                start=df['Time'].dt.date.min(),
-                end=df['Time'].dt.date.max(),
-                freq='W-MON'
+            # Update layout for multiple y-axes
+            fig.update_layout(
+                title='Combined Analysis Over Time',
+                yaxis=dict(title='Speed', side='left'),
+                yaxis2=dict(title='PM2.5', side='right', overlaying='y', position=0.85),
+                yaxis3=dict(title='PM10', side='right', overlaying='y', position=0.95),
+                height=600
             )
-            selected_week = st.selectbox("Select Week Starting From", available_weeks)
             
-            correlations, week_df = calculate_weekly_stats(df, selected_week.date())
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab2:
+            st.subheader("Movement Patterns")
             
-            st.subheader("Weekly Pollution-Mood Correlation Analysis")
+            # Speed vs Time plot
+            fig_speed = px.line(day_df, x='Time', y='Speed', title='Speed Over Time')
+            fig_speed.add_scatter(x=day_df['Time'], y=day_df['Speed'], 
+                                mode='markers', text=day_df['Movement'], 
+                                name='Movement Type')
+            st.plotly_chart(fig_speed, use_container_width=True)
+
+            # Movement type distribution
+            movement_dist = day_df['Movement'].value_counts()
+            fig_pie = px.pie(values=movement_dist.values, names=movement_dist.index,
+                            title='Distribution of Movement Types')
+            st.plotly_chart(fig_pie)
+
+            # Statistics
+            st.subheader("Movement Statistics")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Average Speed", f"{day_df['Speed'].mean():.3f}")
+            with col2:
+                st.metric("Max Speed", f"{day_df['Speed'].max():.3f}")
+            with col3:
+                st.metric("Total Distance", f"{day_df['Distance'].sum():.2f}")
+
+        with tab3:
+            st.subheader("Movement Map")
             
-            # Correlation matrix heatmap
-            corr_data = pd.DataFrame([
-                {'Pollutant': 'PM2.5', 'Mood': 'Positive', 'Correlation': correlations['PM2.5_mean_PositiveMood']['correlation']},
-                {'Pollutant': 'PM2.5', 'Mood': 'Negative', 'Correlation': correlations['PM2.5_mean_NegativeMood']['correlation']},
-                {'Pollutant': 'PM10', 'Mood': 'Positive', 'Correlation': correlations['PM10_mean_PositiveMood']['correlation']},
-                {'Pollutant': 'PM10', 'Mood': 'Negative', 'Correlation': correlations['PM10_mean_NegativeMood']['correlation']}
-            ])
+            m = folium.Map(location=[day_df['Latitude'].mean(), 
+                                   day_df['Longitude'].mean()],
+                          zoom_start=15)
+
+            # Add color-coded markers
+            for idx, row in day_df.iterrows():
+                color = {
+                    "Standing Still": "red",
+                    "Walking": "blue",
+                    "Running": "green",
+                    "Driving": "purple"
+                }.get(row['Movement'], "gray")
+                
+                folium.CircleMarker(
+                    location=[row['Latitude'], row['Longitude']],
+                    radius=8,
+                    popup=f"""
+                    Time: {row['Time']}<br>
+                    Movement: {row['Movement']}<br>
+                    Speed: {row['Speed']:.3f}<br>
+                    PM2.5: {row['PM2.5']}<br>
+                    PM10: {row['PM10']}
+                    """,
+                    color=color,
+                    fill=True
+                ).add_to(m)
+
+            # Path line
+            coordinates = day_df[['Latitude', 'Longitude']].values.tolist()
+            folium.PolyLine(coordinates, weight=2, color='blue', opacity=0.8).add_to(m)
+
+            # Legend
+            legend_html = """
+                <div style="position: fixed; 
+                            bottom: 50px; right: 50px; 
+                            border:2px solid grey; z-index:9999; font-size:14px;
+                            background-color:white;
+                            padding: 10px;
+                            border-radius: 5px;">
+                <p><i class="fa fa-circle" style="color:red"></i> Standing Still</p>
+                <p><i class="fa fa-circle" style="color:blue"></i> Walking</p>
+                <p><i class="fa fa-circle" style="color:green"></i> Running</p>
+                <p><i class="fa fa-circle" style="color:purple"></i> Driving</p>
+                </div>
+                """
+            m.get_root().html.add_child(folium.Element(legend_html))
+
+            folium_static(m)
+
+        with tab4:
+            st.subheader("Environmental Data Analysis")
             
-            fig_heatmap = px.density_heatmap(
-                corr_data,
-                x='Pollutant',
-                y='Mood',
-                z='Correlation',
-                title='Pollution-Mood Correlation Matrix'
-            )
-            st.plotly_chart(fig_heatmap)
-            
-            # Weekly trends
-            fig_weekly = go.Figure()
-            fig_weekly.add_trace(go.Scatter(x=week_df['Time'], y=week_df['PositiveMood'],
-                                          name='Positive Mood'))
-            fig_weekly.add_trace(go.Scatter(x=week_df['Time'], y=week_df['NegativeMood'],
-                                          name='Negative Mood'))
-            fig_weekly.add_trace(go.Scatter(x=week_df['Time'], y=week_df['PM2.5_mean'],
-                                          name='PM2.5'))
-            fig_weekly.update_layout(title='Weekly Trends')
-            st.plotly_chart(fig_weekly, use_container_width=True)
-            
-            # Statistical summary
-            st.subheader("Statistical Summary")
-            for key, value in correlations.items():
-                pollutant, mood = key.split('_', 1)
-                st.write(f"Correlation between {pollutant} and {mood}:")
-                st.write(f"- Correlation coefficient: {value['correlation']:.3f}")
-                st.write(f"- P-value: {value['p_value']:.3f}")
+            fig_pm = go.Figure()
+            fig_pm.add_trace(go.Scatter(x=day_df['Time'], y=day_df['PM2.5'], 
+                                      name='PM2.5'))
+            fig_pm.add_trace(go.Scatter(x=day_df['Time'], y=day_df['PM10'], 
+                                      name='PM10'))
+            fig_pm.update_layout(title='PM2.5 and PM10 Levels Over Time')
+            st.plotly_chart(fig_pm, use_container_width=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Average PM2.5", f"{day_df['PM2.5'].mean():.1f}")
+            with col2:
+                st.metric("Average PM10", f"{day_df['PM10'].mean():.1f}")
 
 if __name__ == "__main__":
     main()
