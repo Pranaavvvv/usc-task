@@ -41,7 +41,8 @@ def main():
             st.dataframe(df)
             
         df['Movement'] = df['Speed'].apply(get_movement_type)
-        df['Time'] = pd.to_datetime(df['Time'])
+        # Convert time string to datetime with European format (DD-MM-YYYY)
+        df['Time'] = pd.to_datetime(df['Time'], format='%d-%m-%Y %H:%M')
 
         # Create tabs for different visualizations
         tab1, tab2, tab3 = st.tabs(["Movement Analysis", "Map View", "Environmental Data"])
